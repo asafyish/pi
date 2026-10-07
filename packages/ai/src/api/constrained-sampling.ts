@@ -35,17 +35,6 @@ function isJsonSchemaObject(value: unknown): value is JsonSchemaObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isStructuredSchema(schema: unknown): boolean {
-	if (!isJsonSchemaObject(schema)) return false;
-	const types = typeof schema.type === "string" ? [schema.type] : Array.isArray(schema.type) ? schema.type : [];
-	return (
-		types.includes("object") ||
-		types.includes("array") ||
-		schema.properties !== undefined ||
-		schema.items !== undefined
-	);
-}
-
 function schemaAllowsNull(schema: unknown): boolean {
 	if (!isJsonSchemaObject(schema)) return false;
 	if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null"))) return true;
@@ -75,9 +64,6 @@ function makeJsonSchemaNodeStrict(schema: unknown, isUnsupportedKeyword?: Unsupp
 			throw new UnsupportedStrictJsonSchemaError("anyOf must contain at least one schema");
 		}
 		for (const variant of schema.anyOf) {
-			if (isStructuredSchema(variant)) {
-				throw new UnsupportedStrictJsonSchemaError("object and array unions are unsupported");
-			}
 			makeJsonSchemaNodeStrict(variant, isUnsupportedKeyword);
 		}
 	}
@@ -131,6 +117,9 @@ export function makeStrictJsonSchema(
 	const cloned: unknown = structuredClone(schema);
 	if (!isJsonSchemaObject(cloned)) {
 		throw new UnsupportedStrictJsonSchemaError("root schema must have type object");
+	}
+	if (cloned.anyOf !== undefined) {
+		throw new UnsupportedStrictJsonSchemaError("root schema must not use anyOf");
 	}
 	makeJsonSchemaNodeStrict(cloned, isUnsupportedKeyword);
 	if (cloned.type !== "object") {

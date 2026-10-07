@@ -153,6 +153,52 @@ describe("constrained tool sampling", () => {
 		});
 	});
 
+	it("converts nested object and array unions without changing tool definitions", () => {
+		const parameters = Type.Object({
+			value: Type.Union([
+				Type.Object({ kind: Type.Literal("object"), name: Type.String(), label: Type.Optional(Type.String()) }),
+				Type.Array(Type.Object({ path: Type.String(), enabled: Type.Optional(Type.Boolean()) })),
+				Type.Null(),
+			]),
+		});
+		const strict = makeStrictJsonSchema(parameters);
+
+		expect(parameters.properties.value.anyOf[0].required).toEqual(["kind", "name"]);
+		expect(parameters.properties.value.anyOf[0]).not.toHaveProperty("additionalProperties");
+		expect(strict).toMatchObject({
+			type: "object",
+			additionalProperties: false,
+			required: ["value"],
+			properties: {
+				value: {
+					anyOf: [
+						{
+							type: "object",
+							additionalProperties: false,
+							required: ["kind", "name", "label"],
+							properties: { label: { anyOf: [{ type: "string" }, { type: "null" }] } },
+						},
+						{
+							type: "array",
+							items: {
+								type: "object",
+								additionalProperties: false,
+								required: ["path", "enabled"],
+								properties: { enabled: { anyOf: [{ type: "boolean" }, { type: "null" }] } },
+							},
+						},
+						{ type: "null" },
+					],
+				},
+			},
+		});
+		const tool = makeTool({ parameters, constrainedSampling: { type: "json_schema", strict: "require" } });
+		expect(convertResponsesTools([tool], { supportsStrictMode: true })[0]).toMatchObject({
+			strict: true,
+			parameters: strict,
+		});
+	});
+
 	it("falls back or rejects schemas that cannot be safely converted", () => {
 		const cases: Array<{ parameters: Tool["parameters"]; error: string }> = [
 			{
@@ -165,9 +211,19 @@ describe("constrained tool sampling", () => {
 			},
 			{
 				parameters: Type.Object({
-					value: Type.Union([Type.Object({ nested: Type.String() }), Type.Null()]),
+					value: Type.Union([
+						Type.Object({ nested: Type.String() }, { additionalProperties: Type.String() }),
+						Type.Null(),
+					]),
 				}),
-				error: "object and array unions are unsupported",
+				error: "additionalProperties is unsupported",
+			},
+			{
+				parameters: Type.Object(
+					{},
+					{ anyOf: [Type.Object({ a: Type.String() }), Type.Object({ b: Type.Number() })] },
+				),
+				error: "root schema must not use anyOf",
 			},
 			{
 				parameters: {
